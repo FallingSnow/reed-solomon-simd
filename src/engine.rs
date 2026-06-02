@@ -65,38 +65,12 @@ mod engine_neon;
 #[cfg(target_arch = "wasm32")]
 mod engine_wasm;
 
-mod fwht;
 mod shards;
 
 pub mod tables;
 pub mod utils;
 
-// ======================================================================
-// CONST - PUBLIC
-
-/// Size of Galois field element [`GfElement`] in bits.
-pub const GF_BITS: usize = 16;
-
-/// Galois field order, i.e. number of elements.
-pub const GF_ORDER: usize = 65536;
-
-/// `GF_ORDER - 1`
-pub const GF_MODULUS: GfElement = 65535;
-
-/// Galois field polynomial.
-pub const GF_POLYNOMIAL: usize = 0x1002D;
-
-/// TODO
-pub const CANTOR_BASIS: [GfElement; GF_BITS] = [
-    0x0001, 0xACCA, 0x3C0E, 0x163E, 0xC582, 0xED2E, 0x914C, 0x4012, 0x6C98, 0x10D8, 0x6A72, 0xB900,
-    0xFDB8, 0xFB34, 0xFF38, 0x991E,
-];
-
-// ======================================================================
-// TYPE ALIASES - PUBLIC
-
-/// Galois field element.
-pub type GfElement = u16;
+use crate::constants::{GfElement, GF_ORDER};
 
 // ======================================================================
 // Engine - PUBLIC
@@ -125,13 +99,13 @@ pub trait Engine {
     ///       contains valid FFT result if this contained
     ///       only `0u8`:s and garbage otherwise.
     fn fft(
-        &self,
         data: &mut ShardsRefMut,
         pos: usize,
         size: usize,
         truncated_size: usize,
         skew_delta: usize,
-    );
+    ) where
+        Self: Sized;
 
     /// In-place decimation-in-time IFFT (inverse fast Fourier transform).
     ///
@@ -145,49 +119,84 @@ pub trait Engine {
     ///       contains valid IFFT result if this contained
     ///       only `0u8`:s and garbage otherwise.
     fn ifft(
-        &self,
         data: &mut ShardsRefMut,
         pos: usize,
         size: usize,
         truncated_size: usize,
         skew_delta: usize,
-    );
+    ) where
+        Self: Sized;
 
     /// `x[] *= log_m`
-    fn mul(&self, x: &mut [[u8; 64]], log_m: GfElement);
+    fn mul(x: &mut [[u8; 64]], log_m: GfElement)
+    where
+        Self: Sized;
 
     // ============================================================
     // PROVIDED
 
     /// Evaluate polynomial.
-    fn eval_poly(&self, erasures: &mut [GfElement; GF_ORDER], truncated_size: usize) {
+    #[inline(always)]
+    fn eval_poly(erasures: &mut [GfElement; GF_ORDER], truncated_size: usize)
+    where
+        Self: Sized,
+    {
         utils::eval_poly(erasures, truncated_size);
     }
 
     /// `x[] ^= y[]`
-    fn xor(&self, xs: &mut [[u8; 64]], ys: &[[u8; 64]]) {
+    #[inline(always)]
+    fn xor(xs: &mut [[u8; 64]], ys: &[[u8; 64]])
+    where
+        Self: Sized,
+    {
         utils::xor(xs, ys);
     }
 
     /// `data[x .. x + count] ^= data[y .. y + count]`
     ///
     /// Ranges must not overlap.
-    fn xor_within(&self, data: &mut ShardsRefMut, x: usize, y: usize, count: usize) {
+    #[inline(always)]
+    fn xor_within(data: &mut ShardsRefMut, x: usize, y: usize, count: usize)
+    where
+        Self: Sized,
+    {
         let (xs, ys) = data.flat2_mut(x, y, count);
-        self.xor(xs, ys);
+        Self::xor(xs, ys);
     }
 
     /// Formal derivative.
-    fn formal_derivative(&self, data: &mut ShardsRefMut) {
+    #[inline(always)]
+    fn formal_derivative(data: &mut ShardsRefMut)
+    where
+        Self: Sized,
+    {
         for i in 1..data.len() {
             let width: usize = 1 << i.trailing_zeros();
-            self.xor_within(data, i - width, i, width);
+            Self::xor_within(data, i - width, i, width);
         }
     }
+}
+
+
+
+#[derive(Default, Clone, Copy)]
+#[repr(u8)]
+pub(crate) enum EngineType {
+    #[default]
+    Uninitialized = 0,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    Avx2 = 1,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    Ssse3 = 2,
+    #[cfg(target_arch = "aarch64")]
+    Neon = 3,
+    #[cfg(target_arch = "wasm32")]
+    Wasm = 4,
+    NoSimd = 255,
 }
 
 // ======================================================================
 // TESTS
 
 // Engines are tested indirectly via roundtrip tests of HighRate and LowRate.
-

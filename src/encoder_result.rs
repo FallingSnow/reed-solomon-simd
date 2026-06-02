@@ -110,7 +110,7 @@ impl<'a> Recovery<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{test_util, ReedSolomonEncoder};
+    use crate::{ReedSolomonEncoder, engine::DefaultEngine, test_util};
 
     #[cfg(not(feature = "std"))]
     use alloc::vec::Vec;
@@ -121,7 +121,7 @@ mod tests {
     // Recovery
     fn encoder_result() {
         let original = test_util::generate_original(2, 1024, 123);
-        let mut encoder = ReedSolomonEncoder::new(2, 3, 1024).unwrap();
+        let mut encoder = ReedSolomonEncoder::<DefaultEngine>::new(2, 3, 1024).unwrap();
 
         for original in &original {
             encoder.add_original_shard(original).unwrap();
@@ -148,7 +148,7 @@ mod tests {
     #[test]
     fn encoder_result_size_hint() {
         let original = test_util::generate_original(2, 1024, 123);
-        let mut encoder = ReedSolomonEncoder::new(2, 3, 1024).unwrap();
+        let mut encoder = ReedSolomonEncoder::<DefaultEngine>::new(2, 3, 1024).unwrap();
 
         for original in &original {
             encoder.add_original_shard(original).unwrap();

@@ -1,7 +1,8 @@
 use core::{cmp::Ordering, marker::PhantomData};
 
 use crate::{
-    engine::{Engine, GF_ORDER},
+    constants::GF_ORDER,
+    engine::Engine,
     rate::{
         DecoderWork, EncoderWork, HighRateDecoder, HighRateEncoder, LowRateDecoder, LowRateEncoder,
         Rate, RateDecoder, RateEncoder,
@@ -122,10 +123,10 @@ impl<E: Engine> RateEncoder<E> for DefaultRateEncoder<E> {
         }
     }
 
-    fn into_parts(self) -> (E, EncoderWork) {
+    fn into_work(self) -> EncoderWork {
         match self.0 {
-            InnerEncoder::High(high) => high.into_parts(),
-            InnerEncoder::Low(low) => low.into_parts(),
+            InnerEncoder::High(high) => high.into_work(),
+            InnerEncoder::Low(low) => low.into_work(),
             InnerEncoder::None => unreachable!(),
         }
     }
@@ -134,7 +135,6 @@ impl<E: Engine> RateEncoder<E> for DefaultRateEncoder<E> {
         original_count: usize,
         recovery_count: usize,
         shard_bytes: usize,
-        engine: E,
         work: Option<EncoderWork>,
     ) -> Result<Self, Error> {
         let inner = if use_high_rate(original_count, recovery_count)? {
@@ -142,7 +142,6 @@ impl<E: Engine> RateEncoder<E> for DefaultRateEncoder<E> {
                 original_count,
                 recovery_count,
                 shard_bytes,
-                engine,
                 work,
             )?)
         } else {
@@ -150,7 +149,6 @@ impl<E: Engine> RateEncoder<E> for DefaultRateEncoder<E> {
                 original_count,
                 recovery_count,
                 shard_bytes,
-                engine,
                 work,
             )?)
         };
@@ -172,12 +170,11 @@ impl<E: Engine> RateEncoder<E> for DefaultRateEncoder<E> {
                     high.reset(original_count, recovery_count, shard_bytes)?;
                     InnerEncoder::High(high)
                 } else {
-                    let (engine, work) = high.into_parts();
+                    let work = high.into_work();
                     InnerEncoder::Low(LowRateEncoder::new(
                         original_count,
                         recovery_count,
                         shard_bytes,
-                        engine,
                         Some(work),
                     )?)
                 }
@@ -185,12 +182,11 @@ impl<E: Engine> RateEncoder<E> for DefaultRateEncoder<E> {
 
             InnerEncoder::Low(mut low) => {
                 if new_rate_is_high {
-                    let (engine, work) = low.into_parts();
+                    let work = low.into_work();
                     InnerEncoder::High(HighRateEncoder::new(
                         original_count,
                         recovery_count,
                         shard_bytes,
-                        engine,
                         Some(work),
                     )?)
                 } else {
@@ -266,10 +262,10 @@ impl<E: Engine> RateDecoder<E> for DefaultRateDecoder<E> {
         }
     }
 
-    fn into_parts(self) -> (E, DecoderWork) {
+    fn into_work(self) -> DecoderWork {
         match self.0 {
-            InnerDecoder::High(high) => high.into_parts(),
-            InnerDecoder::Low(low) => low.into_parts(),
+            InnerDecoder::High(high) => high.into_work(),
+            InnerDecoder::Low(low) => low.into_work(),
             InnerDecoder::None => unreachable!(),
         }
     }
@@ -278,7 +274,6 @@ impl<E: Engine> RateDecoder<E> for DefaultRateDecoder<E> {
         original_count: usize,
         recovery_count: usize,
         shard_bytes: usize,
-        engine: E,
         work: Option<DecoderWork>,
     ) -> Result<Self, Error> {
         let inner = if use_high_rate(original_count, recovery_count)? {
@@ -286,7 +281,6 @@ impl<E: Engine> RateDecoder<E> for DefaultRateDecoder<E> {
                 original_count,
                 recovery_count,
                 shard_bytes,
-                engine,
                 work,
             )?)
         } else {
@@ -294,7 +288,6 @@ impl<E: Engine> RateDecoder<E> for DefaultRateDecoder<E> {
                 original_count,
                 recovery_count,
                 shard_bytes,
-                engine,
                 work,
             )?)
         };
@@ -316,12 +309,11 @@ impl<E: Engine> RateDecoder<E> for DefaultRateDecoder<E> {
                     high.reset(original_count, recovery_count, shard_bytes)?;
                     InnerDecoder::High(high)
                 } else {
-                    let (engine, work) = high.into_parts();
+                    let work = high.into_work();
                     InnerDecoder::Low(LowRateDecoder::new(
                         original_count,
                         recovery_count,
                         shard_bytes,
-                        engine,
                         Some(work),
                     )?)
                 }
@@ -329,12 +321,11 @@ impl<E: Engine> RateDecoder<E> for DefaultRateDecoder<E> {
 
             InnerDecoder::Low(mut low) => {
                 if new_rate_is_high {
-                    let (engine, work) = low.into_parts();
+                    let work = low.into_work();
                     InnerDecoder::High(HighRateDecoder::new(
                         original_count,
                         recovery_count,
                         shard_bytes,
-                        engine,
                         Some(work),
                     )?)
                 } else {

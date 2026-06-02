@@ -6,9 +6,9 @@ use core::arch::x86::*;
 use core::arch::x86_64::*;
 
 use crate::engine::{
-    tables::{self, Mul128, Multiply128lutT, Skew},
-    utils, Engine, GfElement, ShardsRefMut, GF_MODULUS, GF_ORDER,
+    Engine, ShardsRefMut, tables::{self, Multiply128lutT}, utils
 };
+use crate::constants::{GF_MODULUS, GF_ORDER, GfElement};
 
 // ======================================================================
 // Avx2 - PUBLIC
@@ -20,30 +20,10 @@ use crate::engine::{
 ///
 /// [`NoSimd`]: crate::engine::NoSimd
 #[derive(Clone, Copy)]
-pub struct Avx2 {
-    mul128: &'static Mul128,
-    skew: &'static Skew,
-}
-
-impl Avx2 {
-    /// Creates new [`Avx2`], initializing all [tables]
-    /// needed for encoding or decoding.
-    ///
-    /// Currently only difference between encoding/decoding is
-    /// [`LogWalsh`] (128 kiB) which is only needed for decoding.
-    ///
-    /// [`LogWalsh`]: crate::engine::tables::LogWalsh
-    pub fn new() -> Self {
-        let mul128 = tables::get_mul128();
-        let skew = tables::get_skew();
-
-        Self { mul128, skew }
-    }
-}
+pub struct Avx2;
 
 impl Engine for Avx2 {
     fn fft(
-        &self,
         data: &mut ShardsRefMut,
         pos: usize,
         size: usize,
@@ -51,12 +31,11 @@ impl Engine for Avx2 {
         skew_delta: usize,
     ) {
         unsafe {
-            self.fft_private_avx2(data, pos, size, truncated_size, skew_delta);
+            Self::fft_private_avx2(data, pos, size, truncated_size, skew_delta);
         }
     }
 
     fn ifft(
-        &self,
         data: &mut ShardsRefMut,
         pos: usize,
         size: usize,
@@ -64,27 +43,18 @@ impl Engine for Avx2 {
         skew_delta: usize,
     ) {
         unsafe {
-            self.ifft_private_avx2(data, pos, size, truncated_size, skew_delta);
+            Self::ifft_private_avx2(data, pos, size, truncated_size, skew_delta);
         }
     }
 
-    fn mul(&self, x: &mut [[u8; 64]], log_m: GfElement) {
+    fn mul(x: &mut [[u8; 64]], log_m: GfElement) {
         unsafe {
-            self.mul_avx2(x, log_m);
+            Self::mul_avx2(x, log_m);
         }
     }
 
-    fn eval_poly(&self, erasures: &mut [GfElement; GF_ORDER], truncated_size: usize) {
+    fn eval_poly(erasures: &mut [GfElement; GF_ORDER], truncated_size: usize) {
         unsafe { Self::eval_poly_avx2(erasures, truncated_size) }
-    }
-}
-
-// ======================================================================
-// Avx2 - IMPL Default
-
-impl Default for Avx2 {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -141,9 +111,9 @@ impl From<&Multiply128lutT> for LutAvx2 {
 
 impl Avx2 {
     #[target_feature(enable = "avx2")]
-    unsafe fn mul_avx2(&self, x: &mut [[u8; 64]], log_m: GfElement) {
-        let lut = &self.mul128[log_m as usize];
-        let lut_avx2 = LutAvx2::from(lut);
+    unsafe fn mul_avx2(x: &mut [[u8; 64]], log_m: GfElement) {
+        let lut = tables::MUL_128[log_m as usize];
+        let lut_avx2 = LutAvx2::from(&lut);
 
         for chunk in x.iter_mut() {
             let x_ptr = chunk.as_mut_ptr().cast::<__m256i>();
@@ -237,9 +207,9 @@ impl Avx2 {
 
     // Partial butterfly, caller must do `GF_MODULUS` check with `xor`.
     #[inline(always)]
-    fn fft_butterfly_partial(&self, x: &mut [[u8; 64]], y: &mut [[u8; 64]], log_m: GfElement) {
-        let lut = &self.mul128[log_m as usize];
-        let lut_avx2 = LutAvx2::from(lut);
+    fn fft_butterfly_partial(x: &mut [[u8; 64]], y: &mut [[u8; 64]], log_m: GfElement) {
+        let lut = tables::MUL_128[log_m as usize];
+        let lut_avx2 = LutAvx2::from(&lut);
 
         for (x_chunk, y_chunk) in zip(x.iter_mut(), y.iter_mut()) {
             Self::fftb_256(x_chunk, y_chunk, lut_avx2);
@@ -248,7 +218,6 @@ impl Avx2 {
 
     #[inline(always)]
     fn fft_butterfly_two_layers(
-        &self,
         data: &mut ShardsRefMut,
         pos: usize,
         dist: usize,
@@ -261,31 +230,30 @@ impl Avx2 {
         // FIRST LAYER
 
         if log_m02 == GF_MODULUS {
-            self.xor(s2, s0);
-            self.xor(s3, s1);
+            Self::xor(s2, s0);
+            Self::xor(s3, s1);
         } else {
-            self.fft_butterfly_partial(s0, s2, log_m02);
-            self.fft_butterfly_partial(s1, s3, log_m02);
+            Self::fft_butterfly_partial(s0, s2, log_m02);
+            Self::fft_butterfly_partial(s1, s3, log_m02);
         }
 
         // SECOND LAYER
 
         if log_m01 == GF_MODULUS {
-            self.xor(s1, s0);
+            Self::xor(s1, s0);
         } else {
-            self.fft_butterfly_partial(s0, s1, log_m01);
+            Self::fft_butterfly_partial(s0, s1, log_m01);
         }
 
         if log_m23 == GF_MODULUS {
-            self.xor(s3, s2);
+            Self::xor(s3, s2);
         } else {
-            self.fft_butterfly_partial(s2, s3, log_m23);
+            Self::fft_butterfly_partial(s2, s3, log_m23);
         }
     }
 
     #[target_feature(enable = "avx2")]
     unsafe fn fft_private_avx2(
-        &self,
         data: &mut ShardsRefMut,
         pos: usize,
         size: usize,
@@ -293,12 +261,11 @@ impl Avx2 {
         skew_delta: usize,
     ) {
         // Drop unsafe privileges
-        self.fft_private(data, pos, size, truncated_size, skew_delta);
+        Self::fft_private(data, pos, size, truncated_size, skew_delta);
     }
 
     #[inline(always)]
     fn fft_private(
-        &self,
         data: &mut ShardsRefMut,
         pos: usize,
         size: usize,
@@ -314,12 +281,12 @@ impl Avx2 {
             while r < truncated_size {
                 let base = r + dist + skew_delta - 1;
 
-                let log_m01 = self.skew[base];
-                let log_m02 = self.skew[base + dist];
-                let log_m23 = self.skew[base + dist * 2];
+                let log_m01 = tables::SKEW[base];
+                let log_m02 = tables::SKEW[base + dist];
+                let log_m23 = tables::SKEW[base + dist * 2];
 
                 for i in r..r + dist {
-                    self.fft_butterfly_two_layers(data, pos + i, dist, log_m01, log_m23, log_m02);
+                    Self::fft_butterfly_two_layers(data, pos + i, dist, log_m01, log_m23, log_m02);
                 }
 
                 r += dist4;
@@ -333,14 +300,14 @@ impl Avx2 {
         if dist4 == 2 {
             let mut r = 0;
             while r < truncated_size {
-                let log_m = self.skew[r + skew_delta];
+                let log_m = tables::SKEW[r + skew_delta];
 
                 let (x, y) = data.dist2_mut(pos + r, 1);
 
                 if log_m == GF_MODULUS {
-                    self.xor(y, x);
+                    Self::xor(y, x);
                 } else {
-                    self.fft_butterfly_partial(x, y, log_m);
+                    Self::fft_butterfly_partial(x, y, log_m);
                 }
 
                 r += 2;
@@ -380,9 +347,9 @@ impl Avx2 {
     }
 
     #[inline(always)]
-    fn ifft_butterfly_partial(&self, x: &mut [[u8; 64]], y: &mut [[u8; 64]], log_m: GfElement) {
-        let lut = &self.mul128[log_m as usize];
-        let lut_avx2 = LutAvx2::from(lut);
+    fn ifft_butterfly_partial(x: &mut [[u8; 64]], y: &mut [[u8; 64]], log_m: GfElement) {
+        let lut = tables::MUL_128[log_m as usize];
+        let lut_avx2 = LutAvx2::from(&lut);
 
         for (x_chunk, y_chunk) in zip(x.iter_mut(), y.iter_mut()) {
             Self::ifftb_256(x_chunk, y_chunk, lut_avx2);
@@ -391,7 +358,6 @@ impl Avx2 {
 
     #[inline(always)]
     fn ifft_butterfly_two_layers(
-        &self,
         data: &mut ShardsRefMut,
         pos: usize,
         dist: usize,
@@ -404,31 +370,30 @@ impl Avx2 {
         // FIRST LAYER
 
         if log_m01 == GF_MODULUS {
-            self.xor(s1, s0);
+            Self::xor(s1, s0);
         } else {
-            self.ifft_butterfly_partial(s0, s1, log_m01);
+            Self::ifft_butterfly_partial(s0, s1, log_m01);
         }
 
         if log_m23 == GF_MODULUS {
-            self.xor(s3, s2);
+            Self::xor(s3, s2);
         } else {
-            self.ifft_butterfly_partial(s2, s3, log_m23);
+            Self::ifft_butterfly_partial(s2, s3, log_m23);
         }
 
         // SECOND LAYER
 
         if log_m02 == GF_MODULUS {
-            self.xor(s2, s0);
-            self.xor(s3, s1);
+            Self::xor(s2, s0);
+            Self::xor(s3, s1);
         } else {
-            self.ifft_butterfly_partial(s0, s2, log_m02);
-            self.ifft_butterfly_partial(s1, s3, log_m02);
+            Self::ifft_butterfly_partial(s0, s2, log_m02);
+            Self::ifft_butterfly_partial(s1, s3, log_m02);
         }
     }
 
     #[target_feature(enable = "avx2")]
     unsafe fn ifft_private_avx2(
-        &self,
         data: &mut ShardsRefMut,
         pos: usize,
         size: usize,
@@ -436,12 +401,11 @@ impl Avx2 {
         skew_delta: usize,
     ) {
         // Drop unsafe privileges
-        self.ifft_private(data, pos, size, truncated_size, skew_delta);
+        Self::ifft_private(data, pos, size, truncated_size, skew_delta);
     }
 
     #[inline(always)]
     fn ifft_private(
-        &self,
         data: &mut ShardsRefMut,
         pos: usize,
         size: usize,
@@ -457,12 +421,12 @@ impl Avx2 {
             while r < truncated_size {
                 let base = r + dist + skew_delta - 1;
 
-                let log_m01 = self.skew[base];
-                let log_m02 = self.skew[base + dist];
-                let log_m23 = self.skew[base + dist * 2];
+                let log_m01 = tables::SKEW[base];
+                let log_m02 = tables::SKEW[base + dist];
+                let log_m23 = tables::SKEW[base + dist * 2];
 
                 for i in r..r + dist {
-                    self.ifft_butterfly_two_layers(data, pos + i, dist, log_m01, log_m23, log_m02);
+                    Self::ifft_butterfly_two_layers(data, pos + i, dist, log_m01, log_m23, log_m02);
                 }
 
                 r += dist4;
@@ -474,13 +438,13 @@ impl Avx2 {
         // FINAL ODD LAYER
 
         if dist < size {
-            let log_m = self.skew[dist + skew_delta - 1];
+            let log_m = tables::SKEW[dist + skew_delta - 1];
             if log_m == GF_MODULUS {
-                self.xor_within(data, pos + dist, pos, dist);
+                Self::xor_within(data, pos + dist, pos, dist);
             } else {
                 let (mut a, mut b) = data.split_at_mut(pos + dist);
                 for i in 0..dist {
-                    self.ifft_butterfly_partial(
+                    Self::ifft_butterfly_partial(
                         &mut a[pos + i], // data[pos + i]
                         &mut b[i],       // data[pos + i + dist]
                         log_m,

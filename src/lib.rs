@@ -20,6 +20,7 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use core::fmt;
 
+use crate::engine::DefaultEngine;
 pub use crate::{
     decoder_result::{DecoderResult, RestoredOriginal},
     encoder_result::{EncoderResult, Recovery},
@@ -39,6 +40,10 @@ pub mod algorithm {
 }
 pub mod engine;
 pub mod rate;
+/// Constants for the Galois Field (GF) used in Reed-Solomon encoding/decoding.
+pub mod constants;
+
+pub(crate) mod generation;
 
 // ======================================================================
 // Error - PUBLIC
@@ -257,7 +262,7 @@ where
     T: IntoIterator,
     T::Item: AsRef<[u8]>,
 {
-    if !ReedSolomonEncoder::supports(original_count, recovery_count) {
+    if !ReedSolomonEncoder::<DefaultEngine>::supports(original_count, recovery_count) {
         return Err(Error::UnsupportedShardCount {
             original_count,
             recovery_count,
@@ -275,7 +280,7 @@ where
         });
     };
 
-    let mut encoder = ReedSolomonEncoder::new(original_count, recovery_count, shard_bytes)?;
+    let mut encoder = ReedSolomonEncoder::<DefaultEngine>::new(original_count, recovery_count, shard_bytes)?;
 
     encoder.add_original_shard(first)?;
     for original in original {
@@ -305,7 +310,7 @@ where
     OT: AsRef<[u8]>,
     RT: AsRef<[u8]>,
 {
-    if !ReedSolomonDecoder::supports(original_count, recovery_count) {
+    if !ReedSolomonDecoder::<DefaultEngine>::supports(original_count, recovery_count) {
         return Err(Error::UnsupportedShardCount {
             original_count,
             recovery_count,
@@ -333,7 +338,7 @@ where
         });
     };
 
-    let mut decoder = ReedSolomonDecoder::new(original_count, recovery_count, shard_bytes)?;
+    let mut decoder = ReedSolomonDecoder::<DefaultEngine>::new(original_count, recovery_count, shard_bytes)?;
 
     for (index, original) in original {
         decoder.add_original_shard(index, original)?;

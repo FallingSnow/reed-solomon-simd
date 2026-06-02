@@ -2,7 +2,8 @@ use fixedbitset::FixedBitSet;
 use rand::Rng;
 
 use reed_solomon_simd::{
-    engine::{Engine, Naive, NoSimd, GF_ORDER},
+    constants::GF_ORDER,
+    engine::{Engine, Naive, NoSimd},
     rate::{
         DecoderWork, DefaultRate, EncoderWork, HighRate, LowRate, Rate, RateDecoder, RateEncoder,
     },
@@ -38,7 +39,7 @@ macro_rules! roundtrip {
         $encoder_work: expr,
         $decoder_work: expr $(,)?
     ) => {
-        let recovery_naive = roundtrip::<_, $Rate<_>>(
+        let recovery_naive = roundtrip::<Naive, $Rate<_>>(
             $original,
             $original_count,
             $recovery_count,
@@ -46,11 +47,10 @@ macro_rules! roundtrip {
             $loss_indexes,
             $encoder_work,
             $decoder_work,
-            Naive::new,
         )
         .unwrap();
 
-        let recovery_nosimd = roundtrip::<_, $Rate<_>>(
+        let recovery_nosimd = roundtrip::<NoSimd, $Rate<_>>(
             $original,
             $original_count,
             $recovery_count,
@@ -58,7 +58,6 @@ macro_rules! roundtrip {
             $loss_indexes,
             $encoder_work,
             $decoder_work,
-            NoSimd::new,
         )
         .unwrap();
 
@@ -188,7 +187,6 @@ fn roundtrip<E, R>(
     loss_indexes: &FixedBitSet,
     encoder_work: &mut Option<EncoderWork>,
     decoder_work: &mut Option<DecoderWork>,
-    new_engine: fn() -> E,
 ) -> Result<Vec<Vec<u8>>, Error>
 where
     E: Engine,
@@ -200,7 +198,6 @@ where
         original_count,
         recovery_count,
         shard_bytes,
-        new_engine(),
         encoder_work.take(),
     )?;
 
@@ -218,7 +215,6 @@ where
         original_count,
         recovery_count,
         shard_bytes,
-        new_engine(),
         decoder_work.take(),
     )?;
 
@@ -249,8 +245,8 @@ where
 
     // DONE
 
-    *encoder_work = Some(encoder.into_parts().1);
-    *decoder_work = Some(decoder.into_parts().1);
+    *encoder_work = Some(encoder.into_work());
+    *decoder_work = Some(decoder.into_work());
 
     Ok(recovery)
 }

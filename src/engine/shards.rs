@@ -35,6 +35,7 @@ impl Shards {
             .resize(self.shard_count * self.shard_len_64, [0; 64]);
     }
 
+    #[inline(always)]
     pub(crate) fn insert(&mut self, index: usize, shard: &[u8]) {
         debug_assert_eq!(shard.len() % 2, 0);
 
@@ -59,6 +60,7 @@ impl Shards {
     }
 
     // Undoes the encoding of the last chunk for the given range of shards
+    #[inline(always)]
     pub(crate) fn undo_last_chunk_encoding(&mut self, shard_bytes: usize, range: Range<usize>) {
         let whole_chunk_count = shard_bytes / 64;
         let tail_len = shard_bytes % 64;
@@ -114,6 +116,7 @@ impl<'a> ShardsRefMut<'a> {
     /// If `dist` is `0`.
     ///
     /// [`Naive::fft`]: crate::engine::Naive#method.fft
+    #[inline(always)]
     pub fn dist2_mut(
         &mut self,
         mut pos: usize,
@@ -138,6 +141,7 @@ impl<'a> ShardsRefMut<'a> {
     ///
     /// [`NoSimd::fft`]: crate::engine::NoSimd#method.fft
     #[allow(clippy::type_complexity)]
+    #[inline(always)]
     pub fn dist4_mut(
         &mut self,
         mut pos: usize,
@@ -240,6 +244,7 @@ impl IndexMut<usize> for ShardsRefMut<'_> {
 // ShardsRefMut - CRATE
 
 impl ShardsRefMut<'_> {
+    #[inline(always)]
     pub(crate) fn copy_within(&mut self, mut src: usize, mut dest: usize, mut count: usize) {
         src *= self.shard_len_64;
         dest *= self.shard_len_64;
@@ -252,6 +257,7 @@ impl ShardsRefMut<'_> {
     // `x .. x + count` and `y .. y + count`.
     //
     // Ranges must not overlap.
+    #[inline(always)]
     pub(crate) fn flat2_mut(
         &mut self,
         mut x: usize,

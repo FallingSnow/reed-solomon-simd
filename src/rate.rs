@@ -69,10 +69,9 @@ pub trait Rate<E: Engine> {
         original_count: usize,
         recovery_count: usize,
         shard_bytes: usize,
-        engine: E,
         work: Option<EncoderWork>,
     ) -> Result<Self::RateEncoder, Error> {
-        Self::RateEncoder::new(original_count, recovery_count, shard_bytes, engine, work)
+        Self::RateEncoder::new(original_count, recovery_count, shard_bytes, work)
     }
 
     /// Creates new decoder. This is same as [`RateDecoder::new`].
@@ -80,10 +79,9 @@ pub trait Rate<E: Engine> {
         original_count: usize,
         recovery_count: usize,
         shard_bytes: usize,
-        engine: E,
         work: Option<DecoderWork>,
     ) -> Result<Self::RateDecoder, Error> {
-        Self::RateDecoder::new(original_count, recovery_count, shard_bytes, engine, work)
+        Self::RateDecoder::new(original_count, recovery_count, shard_bytes, work)
     }
 
     /// Returns `Ok(())` if given `original_count` / `recovery_count`
@@ -126,9 +124,9 @@ where
     /// Like [`ReedSolomonEncoder::encode`](crate::ReedSolomonEncoder::encode).
     fn encode(&mut self) -> Result<EncoderResult<'_>, Error>;
 
-    /// Consumes this encoder returning its [`Engine`] and [`EncoderWork`]
-    /// so that they can be re-used by another encoder.
-    fn into_parts(self) -> (E, EncoderWork);
+    /// Consumes this encoder returning its [`EncoderWork`] so that it can be
+    /// re-used by another encoder.
+    fn into_work(self) -> EncoderWork;
 
     /// Like [`ReedSolomonEncoder::new`](crate::ReedSolomonEncoder::new)
     /// with [`Engine`] to use and optional working space to be re-used.
@@ -136,7 +134,6 @@ where
         original_count: usize,
         recovery_count: usize,
         shard_bytes: usize,
-        engine: E,
         work: Option<EncoderWork>,
     ) -> Result<Self, Error>;
 
@@ -205,7 +202,7 @@ where
 
     /// Consumes this decoder returning its [`Engine`] and [`DecoderWork`]
     /// so that they can be re-used by another decoder.
-    fn into_parts(self) -> (E, DecoderWork);
+    fn into_work(self) -> DecoderWork;
 
     /// Like [`ReedSolomonDecoder::new`](crate::ReedSolomonDecoder::new)
     /// with [`Engine`] to use and optional working space to be re-used.
@@ -213,7 +210,6 @@ where
         original_count: usize,
         recovery_count: usize,
         shard_bytes: usize,
-        engine: E,
         work: Option<DecoderWork>,
     ) -> Result<Self, Error>;
 

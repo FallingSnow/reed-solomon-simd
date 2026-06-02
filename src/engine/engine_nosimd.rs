@@ -1,9 +1,7 @@
 use core::iter::zip;
 
-use crate::engine::{
-    tables::{self, Mul16, Skew},
-    Engine, GfElement, ShardsRefMut, GF_MODULUS,
-};
+use crate::constants::{GfElement, GF_MODULUS};
+use crate::engine::{tables, Engine, ShardsRefMut};
 
 // ======================================================================
 // NoSimd - PUBLIC
@@ -11,53 +9,32 @@ use crate::engine::{
 /// Optimized [`Engine`] without SIMD.
 ///
 /// [`NoSimd`] is a basic optimized engine which works on all CPUs.
-#[derive(Clone, Copy)]
-pub struct NoSimd {
-    mul16: &'static Mul16,
-    skew: &'static Skew,
-}
-
-impl NoSimd {
-    /// Creates new [`NoSimd`], initializing all [tables]
-    /// needed for encoding or decoding.
-    ///
-    /// Currently only difference between encoding/decoding is
-    /// [`LogWalsh`] (128 kiB) which is only needed for decoding.
-    ///
-    /// [`LogWalsh`]: crate::engine::tables::LogWalsh
-    pub fn new() -> Self {
-        let mul16 = tables::get_mul16();
-        let skew = tables::get_skew();
-
-        Self { mul16, skew }
-    }
-}
+#[derive(Clone, Copy, Default)]
+pub struct NoSimd;
 
 impl Engine for NoSimd {
     fn fft(
-        &self,
         data: &mut ShardsRefMut,
         pos: usize,
         size: usize,
         truncated_size: usize,
         skew_delta: usize,
     ) {
-        self.fft_private(data, pos, size, truncated_size, skew_delta);
+        Self::fft_private(data, pos, size, truncated_size, skew_delta);
     }
 
     fn ifft(
-        &self,
         data: &mut ShardsRefMut,
         pos: usize,
         size: usize,
         truncated_size: usize,
         skew_delta: usize,
     ) {
-        self.ifft_private(data, pos, size, truncated_size, skew_delta);
+        Self::ifft_private(data, pos, size, truncated_size, skew_delta);
     }
 
-    fn mul(&self, x: &mut [[u8; 64]], log_m: GfElement) {
-        let lut = &self.mul16[log_m as usize];
+    fn mul(x: &mut [[u8; 64]], log_m: GfElement) {
+        let lut = tables::MUL_16[log_m as usize];
 
         for x_chunk in x.iter_mut() {
             let (x_lo, x_hi) = x_chunk.split_at_mut(32);
@@ -77,21 +54,13 @@ impl Engine for NoSimd {
 }
 
 // ======================================================================
-// NoSimd - IMPL Default
-
-impl Default for NoSimd {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-// ======================================================================
 // NoSimd - PRIVATE
 
 impl NoSimd {
     /// `x[] ^= y[] * log_m`
-    fn mul_add(&self, x: &mut [[u8; 64]], y: &[[u8; 64]], log_m: GfElement) {
-        let lut = &self.mul16[log_m as usize];
+    #[inline(always)]
+    fn mul_add(x: &mut [[u8; 64]], y: &[[u8; 64]], log_m: GfElement) {
+        let lut = tables::MUL_16[log_m as usize];
 
         for (x_chunk, y_chunk) in zip(x.iter_mut(), y.iter()) {
             let (x_lo, x_hi) = x_chunk.split_at_mut(32);
@@ -117,14 +86,13 @@ impl NoSimd {
 impl NoSimd {
     // Partial butterfly, caller must do `GF_MODULUS` check with `xor`.
     #[inline(always)]
-    fn fft_butterfly_partial(&self, x: &mut [[u8; 64]], y: &mut [[u8; 64]], log_m: GfElement) {
-        self.mul_add(x, y, log_m);
-        self.xor(y, x);
+    fn fft_butterfly_partial(x: &mut [[u8; 64]], y: &mut [[u8; 64]], log_m: GfElement) {
+        Self::mul_add(x, y, log_m);
+        Self::xor(y, x);
     }
 
     #[inline(always)]
     fn fft_butterfly_two_layers(
-        &self,
         data: &mut ShardsRefMut,
         pos: usize,
         dist: usize,
@@ -137,31 +105,30 @@ impl NoSimd {
         // FIRST LAYER
 
         if log_m02 == GF_MODULUS {
-            self.xor(s2, s0);
-            self.xor(s3, s1);
+            Self::xor(s2, s0);
+            Self::xor(s3, s1);
         } else {
-            self.fft_butterfly_partial(s0, s2, log_m02);
-            self.fft_butterfly_partial(s1, s3, log_m02);
+            Self::fft_butterfly_partial(s0, s2, log_m02);
+            Self::fft_butterfly_partial(s1, s3, log_m02);
         }
 
         // SECOND LAYER
 
         if log_m01 == GF_MODULUS {
-            self.xor(s1, s0);
+            Self::xor(s1, s0);
         } else {
-            self.fft_butterfly_partial(s0, s1, log_m01);
+            Self::fft_butterfly_partial(s0, s1, log_m01);
         }
 
         if log_m23 == GF_MODULUS {
-            self.xor(s3, s2);
+            Self::xor(s3, s2);
         } else {
-            self.fft_butterfly_partial(s2, s3, log_m23);
+            Self::fft_butterfly_partial(s2, s3, log_m23);
         }
     }
 
     #[inline(always)]
     fn fft_private(
-        &self,
         data: &mut ShardsRefMut,
         pos: usize,
         size: usize,
@@ -177,12 +144,12 @@ impl NoSimd {
             while r < truncated_size {
                 let base = r + dist + skew_delta - 1;
 
-                let log_m01 = self.skew[base];
-                let log_m02 = self.skew[base + dist];
-                let log_m23 = self.skew[base + dist * 2];
+                let log_m01 = tables::SKEW[base];
+                let log_m02 = tables::SKEW[base + dist];
+                let log_m23 = tables::SKEW[base + dist * 2];
 
                 for i in r..r + dist {
-                    self.fft_butterfly_two_layers(data, pos + i, dist, log_m01, log_m23, log_m02);
+                    Self::fft_butterfly_two_layers(data, pos + i, dist, log_m01, log_m23, log_m02);
                 }
 
                 r += dist4;
@@ -196,14 +163,14 @@ impl NoSimd {
         if dist4 == 2 {
             let mut r = 0;
             while r < truncated_size {
-                let log_m = self.skew[r + skew_delta];
+                let log_m = tables::SKEW[r + skew_delta];
 
                 let (x, y) = data.dist2_mut(pos + r, 1);
 
                 if log_m == GF_MODULUS {
-                    self.xor(y, x);
+                    Self::xor(y, x);
                 } else {
-                    self.fft_butterfly_partial(x, y, log_m);
+                    Self::fft_butterfly_partial(x, y, log_m);
                 }
 
                 r += 2;
@@ -218,14 +185,13 @@ impl NoSimd {
 impl NoSimd {
     // Partial butterfly, caller must do `GF_MODULUS` check with `xor`.
     #[inline(always)]
-    fn ifft_butterfly_partial(&self, x: &mut [[u8; 64]], y: &mut [[u8; 64]], log_m: GfElement) {
-        self.xor(y, x);
-        self.mul_add(x, y, log_m);
+    fn ifft_butterfly_partial(x: &mut [[u8; 64]], y: &mut [[u8; 64]], log_m: GfElement) {
+        Self::xor(y, x);
+        Self::mul_add(x, y, log_m);
     }
 
     #[inline(always)]
     fn ifft_butterfly_two_layers(
-        &self,
         data: &mut ShardsRefMut,
         pos: usize,
         dist: usize,
@@ -238,31 +204,30 @@ impl NoSimd {
         // FIRST LAYER
 
         if log_m01 == GF_MODULUS {
-            self.xor(s1, s0);
+            Self::xor(s1, s0);
         } else {
-            self.ifft_butterfly_partial(s0, s1, log_m01);
+            Self::ifft_butterfly_partial(s0, s1, log_m01);
         }
 
         if log_m23 == GF_MODULUS {
-            self.xor(s3, s2);
+            Self::xor(s3, s2);
         } else {
-            self.ifft_butterfly_partial(s2, s3, log_m23);
+            Self::ifft_butterfly_partial(s2, s3, log_m23);
         }
 
         // SECOND LAYER
 
         if log_m02 == GF_MODULUS {
-            self.xor(s2, s0);
-            self.xor(s3, s1);
+            Self::xor(s2, s0);
+            Self::xor(s3, s1);
         } else {
-            self.ifft_butterfly_partial(s0, s2, log_m02);
-            self.ifft_butterfly_partial(s1, s3, log_m02);
+            Self::ifft_butterfly_partial(s0, s2, log_m02);
+            Self::ifft_butterfly_partial(s1, s3, log_m02);
         }
     }
 
     #[inline(always)]
     fn ifft_private(
-        &self,
         data: &mut ShardsRefMut,
         pos: usize,
         size: usize,
@@ -278,12 +243,12 @@ impl NoSimd {
             while r < truncated_size {
                 let base = r + dist + skew_delta - 1;
 
-                let log_m01 = self.skew[base];
-                let log_m02 = self.skew[base + dist];
-                let log_m23 = self.skew[base + dist * 2];
+                let log_m01 = tables::SKEW[base];
+                let log_m02 = tables::SKEW[base + dist];
+                let log_m23 = tables::SKEW[base + dist * 2];
 
                 for i in r..r + dist {
-                    self.ifft_butterfly_two_layers(data, pos + i, dist, log_m01, log_m23, log_m02);
+                    Self::ifft_butterfly_two_layers(data, pos + i, dist, log_m01, log_m23, log_m02);
                 }
 
                 r += dist4;
@@ -295,13 +260,13 @@ impl NoSimd {
         // FINAL ODD LAYER
 
         if dist < size {
-            let log_m = self.skew[dist + skew_delta - 1];
+            let log_m = tables::SKEW[dist + skew_delta - 1];
             if log_m == GF_MODULUS {
-                self.xor_within(data, pos + dist, pos, dist);
+                Self::xor_within(data, pos + dist, pos, dist);
             } else {
                 let (mut a, mut b) = data.split_at_mut(pos + dist);
                 for i in 0..dist {
-                    self.ifft_butterfly_partial(
+                    Self::ifft_butterfly_partial(
                         &mut a[pos + i], // data[pos + i]
                         &mut b[i],       // data[pos + i + dist]
                         log_m,
@@ -328,9 +293,6 @@ mod tests {
 
     #[test]
     fn mul() {
-        let naive = Naive::default();
-        let nosimd = NoSimd::default();
-
         let mut rng = ChaCha8Rng::from_seed([0; 32]);
 
         for shard_chunks in 0..6 {
@@ -340,8 +302,8 @@ mod tests {
 
             let log_m = rng.random();
 
-            nosimd.mul(&mut data_nosimd, log_m);
-            naive.mul(&mut data_naive, log_m);
+            NoSimd::mul(&mut data_nosimd, log_m);
+            Naive::mul(&mut data_naive, log_m);
 
             assert_eq!(data_nosimd, data_naive);
         }

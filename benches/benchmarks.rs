@@ -7,9 +7,11 @@ mod bench_impl {
     use rand_chacha::ChaCha8Rng;
 
     use reed_solomon_simd::{
-        engine::{DefaultEngine, Engine, Naive, NoSimd, ShardsRefMut, GF_ORDER},
+        constants::GF_ORDER,
+        engine::{DefaultEngine, Engine, Naive, NoSimd, ShardsRefMut},
         rate::{
-            HighRateDecoder, HighRateEncoder, LowRateDecoder, LowRateEncoder, RateDecoder, RateEncoder,
+            HighRateDecoder, HighRateEncoder, LowRateDecoder, LowRateEncoder, RateDecoder,
+            RateEncoder,
         },
         ReedSolomonDecoder, ReedSolomonEncoder,
     };
@@ -94,8 +96,12 @@ mod bench_impl {
 
             // ReedSolomonEncoder
 
-            let mut encoder =
-                ReedSolomonEncoder::new(original_count, recovery_count, SHARD_BYTES).unwrap();
+            let mut encoder = ReedSolomonEncoder::<DefaultEngine>::new(
+                original_count,
+                recovery_count,
+                SHARD_BYTES,
+            )
+            .unwrap();
 
             let id = format!("{}:{}", original_count, recovery_count);
 
@@ -122,8 +128,12 @@ mod bench_impl {
                 let original_provided_count = original_count - original_loss_count;
                 let recovery_provided_count = original_loss_count;
 
-                let mut decoder =
-                    ReedSolomonDecoder::new(original_count, recovery_count, SHARD_BYTES).unwrap();
+                let mut decoder = ReedSolomonDecoder::<DefaultEngine>::new(
+                    original_count,
+                    recovery_count,
+                    SHARD_BYTES,
+                )
+                .unwrap();
 
                 let id = format!("{}:{} ({}%)", original_count, recovery_count, loss_percent);
 
@@ -153,10 +163,10 @@ mod bench_impl {
 
     pub fn benchmarks_rate(c: &mut Criterion) {
         // benchmarks_rate_one(c, "rate-Naive", Naive::new);
-        benchmarks_rate_one(c, "rate", DefaultEngine::new);
+        benchmarks_rate_one::<DefaultEngine>(c, "rate");
     }
 
-    fn benchmarks_rate_one<E: Engine>(c: &mut Criterion, name: &str, new_engine: fn() -> E) {
+    fn benchmarks_rate_one<E: Engine>(c: &mut Criterion, name: &str) {
         let mut group = c.benchmark_group(name);
         group.sample_size(10);
 
@@ -185,14 +195,9 @@ mod bench_impl {
 
             // HighRateEncoder
 
-            let mut encoder = HighRateEncoder::new(
-                original_count,
-                recovery_count,
-                SHARD_BYTES,
-                new_engine(),
-                None,
-            )
-            .unwrap();
+            let mut encoder =
+                HighRateEncoder::<E>::new(original_count, recovery_count, SHARD_BYTES, None)
+                    .unwrap();
 
             group.bench_with_input(
                 BenchmarkId::new("HighRateEncoder", &id),
@@ -209,14 +214,9 @@ mod bench_impl {
 
             // LowRateEncoder
 
-            let mut encoder = LowRateEncoder::new(
-                original_count,
-                recovery_count,
-                SHARD_BYTES,
-                new_engine(),
-                None,
-            )
-            .unwrap();
+            let mut encoder =
+                LowRateEncoder::<E>::new(original_count, recovery_count, SHARD_BYTES, None)
+                    .unwrap();
 
             group.bench_with_input(
                 BenchmarkId::new("LowRateEncoder", &id),
@@ -239,14 +239,9 @@ mod bench_impl {
 
             // HighRateDecoder
 
-            let mut decoder = HighRateDecoder::new(
-                original_count,
-                recovery_count,
-                SHARD_BYTES,
-                new_engine(),
-                None,
-            )
-            .unwrap();
+            let mut decoder =
+                HighRateDecoder::<E>::new(original_count, recovery_count, SHARD_BYTES, None)
+                    .unwrap();
 
             let id = format!("{}:{}", original_count, recovery_count);
 
@@ -268,14 +263,9 @@ mod bench_impl {
 
             // LowRateDecoder
 
-            let mut decoder = LowRateDecoder::new(
-                original_count,
-                recovery_count,
-                SHARD_BYTES,
-                new_engine(),
-                None,
-            )
-            .unwrap();
+            let mut decoder =
+                LowRateDecoder::<E>::new(original_count, recovery_count, SHARD_BYTES, None)
+                    .unwrap();
 
             let id = format!("{}:{}", original_count, recovery_count);
 
@@ -303,16 +293,16 @@ mod bench_impl {
     // BENCHMARKS - ENGINES
 
     pub fn benchmarks_engine(c: &mut Criterion) {
-        benchmarks_engine_one(c, "engine-Naive", Naive::new());
-        benchmarks_engine_one(c, "engine-NoSimd", NoSimd::new());
+        benchmarks_engine_one::<Naive>(c, "engine-Naive");
+        benchmarks_engine_one::<NoSimd>(c, "engine-NoSimd");
 
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         {
             if is_x86_feature_detected!("ssse3") {
-                benchmarks_engine_one(c, "engine-Ssse3", Ssse3::new());
+                benchmarks_engine_one::<Ssse3>(c, "engine-Ssse3");
             }
             if is_x86_feature_detected!("avx2") {
-                benchmarks_engine_one(c, "engine-Avx2", Avx2::new());
+                benchmarks_engine_one::<Avx2>(c, "engine-Avx2");
             }
         }
 
@@ -324,7 +314,7 @@ mod bench_impl {
         }
     }
 
-    fn benchmarks_engine_one<E: Engine>(c: &mut Criterion, name: &str, engine: E) {
+    fn benchmarks_engine_one<E: Engine>(c: &mut Criterion, name: &str) {
         let mut group = c.benchmark_group(name);
         let shard_len_64 = SHARD_BYTES / 64;
 
@@ -346,7 +336,7 @@ mod bench_impl {
         let mut x = &mut generate_shards_64(1, shard_len_64, 0)[0];
 
         group.bench_function("mul", |b| {
-            b.iter(|| engine.mul(black_box(&mut x), black_box(12345)))
+            b.iter(|| E::mul(black_box(&mut x), black_box(12345)))
         });
 
         // FFT IFFT
@@ -356,7 +346,7 @@ mod bench_impl {
 
         group.bench_function("FFT 128", |b| {
             b.iter(|| {
-                engine.fft(
+                E::fft(
                     black_box(&mut shards_128),
                     black_box(0),
                     black_box(128),
@@ -368,7 +358,7 @@ mod bench_impl {
 
         group.bench_function("IFFT 128", |b| {
             b.iter(|| {
-                engine.ifft(
+                E::ifft(
                     black_box(&mut shards_128),
                     black_box(0),
                     black_box(128),

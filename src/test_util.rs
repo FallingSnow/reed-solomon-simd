@@ -136,7 +136,6 @@ pub(crate) fn roundtrip<R: Rate<E>, E: Engine, T: IntOrRange>(
 }
 
 pub(crate) fn roundtrip_single<R: Rate<E>, E: Engine, T: IntOrRange>(
-    new_engine: fn() -> E,
     original_count: usize,
     recovery_count: usize,
     shard_bytes: usize,
@@ -145,23 +144,9 @@ pub(crate) fn roundtrip_single<R: Rate<E>, E: Engine, T: IntOrRange>(
     decoder_recovery: &[T],
     seed: u8,
 ) {
-    let mut encoder = R::encoder(
-        original_count,
-        recovery_count,
-        shard_bytes,
-        new_engine(),
-        None,
-    )
-    .unwrap();
+    let mut encoder = R::encoder(original_count, recovery_count, shard_bytes, None).unwrap();
 
-    let mut decoder = R::decoder(
-        original_count,
-        recovery_count,
-        shard_bytes,
-        new_engine(),
-        None,
-    )
-    .unwrap();
+    let mut decoder = R::decoder(original_count, recovery_count, shard_bytes, None).unwrap();
 
     roundtrip::<R, E, T>(
         &mut encoder,
@@ -185,8 +170,7 @@ macro_rules! roundtrip_single {
      $decoder_recovery: expr,
      $seed: expr $(,)?
     ) => {
-        crate::test_util::roundtrip_single::<$Rate<_>, _, _>(
-            crate::engine::Naive::new,
+        crate::test_util::roundtrip_single::<$Rate<_>, crate::engine::Naive, _>(
             $original_count,
             $recovery_count,
             $shard_bytes,
@@ -196,8 +180,7 @@ macro_rules! roundtrip_single {
             $seed,
         );
 
-        crate::test_util::roundtrip_single::<$Rate<_>, _, _>(
-            crate::engine::NoSimd::new,
+        crate::test_util::roundtrip_single::<$Rate<_>, crate::engine::NoSimd, _>(
             $original_count,
             $recovery_count,
             $shard_bytes,
@@ -235,11 +218,9 @@ macro_rules! roundtrip_two_rounds {
             $seed_b: expr $(,)?
         ) $(,)?
     ) => {
-        use crate::engine::{Naive, NoSimd};
-
         roundtrip_two_rounds_inner!(
             $Rate,
-            Naive,
+            crate::engine::Naive,
             $explicit_reset,
             (
                 $original_count_a,
@@ -263,7 +244,7 @@ macro_rules! roundtrip_two_rounds {
 
         roundtrip_two_rounds_inner!(
             $Rate,
-            NoSimd,
+            crate::engine::NoSimd,
             $explicit_reset,
             (
                 $original_count_a,
@@ -290,7 +271,7 @@ macro_rules! roundtrip_two_rounds {
 macro_rules! roundtrip_two_rounds_inner {
     (
         $Rate: ident,
-        $Engine: ident,
+        $Engine: ty,
         $explicit_reset: expr,
         (
             $original_count_a: expr,
@@ -311,25 +292,15 @@ macro_rules! roundtrip_two_rounds_inner {
             $seed_b: expr $(,)?
         ) $(,)?
     ) => {
-        let mut encoder = $Rate::encoder(
-            $original_count_a,
-            $recovery_count_a,
-            $shard_bytes_a,
-            $Engine::new(),
-            None,
-        )
-        .unwrap();
+        let mut encoder =
+            $Rate::<$Engine>::encoder($original_count_a, $recovery_count_a, $shard_bytes_a, None)
+                .unwrap();
 
-        let mut decoder = $Rate::decoder(
-            $original_count_a,
-            $recovery_count_a,
-            $shard_bytes_a,
-            $Engine::new(),
-            None,
-        )
-        .unwrap();
+        let mut decoder =
+            $Rate::<$Engine>::decoder($original_count_a, $recovery_count_a, $shard_bytes_a, None)
+                .unwrap();
 
-        test_util::roundtrip::<$Rate<_>, _, _>(
+        test_util::roundtrip::<$Rate<_>, $Engine, _>(
             &mut encoder,
             &mut decoder,
             $original_count_a,
@@ -350,7 +321,7 @@ macro_rules! roundtrip_two_rounds_inner {
                 .unwrap();
         }
 
-        test_util::roundtrip::<$Rate<_>, _, _>(
+        test_util::roundtrip::<$Rate<_>, $Engine, _>(
             &mut encoder,
             &mut decoder,
             $original_count_b,
@@ -370,7 +341,7 @@ macro_rules! test_rate_encoder_errors {
     ($Encoder:ident) => {
         #[test]
         fn different_shard_size_in_add_original_shard() {
-            let mut encoder = $Encoder::new(1, 1, 64, NoSimd::new(), None).unwrap();
+            let mut encoder = $Encoder::<NoSimd>::new(1, 1, 64, None).unwrap();
             assert_eq!(
                 encoder.add_original_shard([0; 128]),
                 Err(Error::DifferentShardSize {
@@ -383,14 +354,14 @@ macro_rules! test_rate_encoder_errors {
         #[test]
         fn invalid_shard_size_in_new() {
             assert_eq!(
-                $Encoder::new(1, 1, 123, NoSimd::new(), None).err(),
+                $Encoder::<NoSimd>::new(1, 1, 123, None).err(),
                 Some(Error::InvalidShardSize { shard_bytes: 123 }),
             );
         }
 
         #[test]
         fn invalid_shard_size_in_reset() {
-            let mut encoder = $Encoder::new(1, 1, 64, NoSimd::new(), None).unwrap();
+            let mut encoder = $Encoder::<NoSimd>::new(1, 1, 64, None).unwrap();
             assert_eq!(
                 encoder.reset(1, 1, 123),
                 Err(Error::InvalidShardSize { shard_bytes: 123 }),
@@ -399,7 +370,7 @@ macro_rules! test_rate_encoder_errors {
 
         #[test]
         fn too_few_original_shards() {
-            let mut encoder = $Encoder::new(1, 1, 64, NoSimd::new(), None).unwrap();
+            let mut encoder = $Encoder::<NoSimd>::new(1, 1, 64, None).unwrap();
             assert_eq!(
                 encoder.encode().err(),
                 Some(Error::TooFewOriginalShards {
@@ -411,7 +382,7 @@ macro_rules! test_rate_encoder_errors {
 
         #[test]
         fn too_many_original_shards() {
-            let mut encoder = $Encoder::new(1, 1, 64, NoSimd::new(), None).unwrap();
+            let mut encoder = $Encoder::<NoSimd>::new(1, 1, 64, None).unwrap();
             encoder.add_original_shard([0; 64]).unwrap();
             assert_eq!(
                 encoder.add_original_shard([0; 64]),
@@ -422,7 +393,7 @@ macro_rules! test_rate_encoder_errors {
         #[test]
         fn unsupported_shard_count_in_new() {
             assert_eq!(
-                $Encoder::new(0, 1, 64, NoSimd::new(), None).err(),
+                $Encoder::<NoSimd>::new(0, 1, 64, None).err(),
                 Some(Error::UnsupportedShardCount {
                     original_count: 0,
                     recovery_count: 1,
@@ -432,7 +403,7 @@ macro_rules! test_rate_encoder_errors {
 
         #[test]
         fn unsupported_shard_count_in_reset() {
-            let mut encoder = $Encoder::new(1, 1, 64, NoSimd::new(), None).unwrap();
+            let mut encoder = $Encoder::<NoSimd>::new(1, 1, 64, None).unwrap();
             assert_eq!(
                 encoder.reset(0, 1, 64),
                 Err(Error::UnsupportedShardCount {
@@ -451,7 +422,7 @@ macro_rules! test_rate_decoder_errors {
     ($Decoder:ident) => {
         #[test]
         fn different_shard_size_in_add_original_shard() {
-            let mut decoder = $Decoder::new(1, 1, 64, NoSimd::new(), None).unwrap();
+            let mut decoder = $Decoder::<NoSimd>::new(1, 1, 64, None).unwrap();
             assert_eq!(
                 decoder.add_original_shard(0, [0; 128]),
                 Err(Error::DifferentShardSize {
@@ -463,7 +434,7 @@ macro_rules! test_rate_decoder_errors {
 
         #[test]
         fn different_shard_size_in_add_recovery_shard() {
-            let mut decoder = $Decoder::new(1, 1, 64, NoSimd::new(), None).unwrap();
+            let mut decoder = $Decoder::<NoSimd>::new(1, 1, 64, None).unwrap();
             assert_eq!(
                 decoder.add_recovery_shard(0, [0; 128]),
                 Err(Error::DifferentShardSize {
@@ -475,7 +446,7 @@ macro_rules! test_rate_decoder_errors {
 
         #[test]
         fn duplicate_shard_index_in_add_original_shard() {
-            let mut decoder = $Decoder::new(1, 1, 64, NoSimd::new(), None).unwrap();
+            let mut decoder = $Decoder::<NoSimd>::new(1, 1, 64, None).unwrap();
             decoder.add_original_shard(0, [0; 64]).unwrap();
             assert_eq!(
                 decoder.add_original_shard(0, [0; 64]),
@@ -485,7 +456,7 @@ macro_rules! test_rate_decoder_errors {
 
         #[test]
         fn duplicate_shard_index_in_add_recovert_shard() {
-            let mut decoder = $Decoder::new(1, 1, 64, NoSimd::new(), None).unwrap();
+            let mut decoder = $Decoder::<NoSimd>::new(1, 1, 64, None).unwrap();
             decoder.add_recovery_shard(0, [0; 64]).unwrap();
             assert_eq!(
                 decoder.add_recovery_shard(0, [0; 64]),
@@ -495,7 +466,7 @@ macro_rules! test_rate_decoder_errors {
 
         #[test]
         fn invalid_original_shard_index() {
-            let mut decoder = $Decoder::new(1, 1, 64, NoSimd::new(), None).unwrap();
+            let mut decoder = $Decoder::<NoSimd>::new(1, 1, 64, None).unwrap();
             assert_eq!(
                 decoder.add_original_shard(1, [0; 64]),
                 Err(Error::InvalidOriginalShardIndex {
@@ -507,7 +478,7 @@ macro_rules! test_rate_decoder_errors {
 
         #[test]
         fn invalid_recovery_shard_index() {
-            let mut decoder = $Decoder::new(1, 1, 64, NoSimd::new(), None).unwrap();
+            let mut decoder = $Decoder::<NoSimd>::new(1, 1, 64, None).unwrap();
             assert_eq!(
                 decoder.add_recovery_shard(1, [0; 64]),
                 Err(Error::InvalidRecoveryShardIndex {
@@ -520,14 +491,14 @@ macro_rules! test_rate_decoder_errors {
         #[test]
         fn invalid_shard_size_in_new() {
             assert_eq!(
-                $Decoder::new(1, 1, 123, NoSimd::new(), None).err(),
+                $Decoder::<NoSimd>::new(1, 1, 123, None).err(),
                 Some(Error::InvalidShardSize { shard_bytes: 123 }),
             );
         }
 
         #[test]
         fn invalid_shard_size_in_reset() {
-            let mut decoder = $Decoder::new(1, 1, 64, NoSimd::new(), None).unwrap();
+            let mut decoder = $Decoder::<NoSimd>::new(1, 1, 64, None).unwrap();
             assert_eq!(
                 decoder.reset(1, 1, 123),
                 Err(Error::InvalidShardSize { shard_bytes: 123 }),
@@ -536,7 +507,7 @@ macro_rules! test_rate_decoder_errors {
 
         #[test]
         fn not_enough_shards() {
-            let mut decoder = $Decoder::new(1, 1, 64, NoSimd::new(), None).unwrap();
+            let mut decoder = $Decoder::<NoSimd>::new(1, 1, 64, None).unwrap();
             assert_eq!(
                 decoder.decode().err(),
                 Some(Error::NotEnoughShards {
@@ -550,7 +521,7 @@ macro_rules! test_rate_decoder_errors {
         #[test]
         fn unsupported_shard_count_in_new() {
             assert_eq!(
-                $Decoder::new(0, 1, 64, NoSimd::new(), None).err(),
+                $Decoder::<NoSimd>::new(0, 1, 64, None).err(),
                 Some(Error::UnsupportedShardCount {
                     original_count: 0,
                     recovery_count: 1,
@@ -560,7 +531,7 @@ macro_rules! test_rate_decoder_errors {
 
         #[test]
         fn unsupported_shard_count_in_reset() {
-            let mut decoder = $Decoder::new(1, 1, 64, NoSimd::new(), None).unwrap();
+            let mut decoder = $Decoder::<NoSimd>::new(1, 1, 64, None).unwrap();
             assert_eq!(
                 decoder.reset(0, 1, 64),
                 Err(Error::UnsupportedShardCount {

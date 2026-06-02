@@ -1,7 +1,5 @@
-use crate::engine::{
-    tables::{self, Exp, Log, Skew},
-    Engine, GfElement, ShardsRefMut, GF_MODULUS,
-};
+use crate::constants::{GfElement, GF_MODULUS};
+use crate::engine::{tables, utils, Engine, ShardsRefMut};
 
 // ======================================================================
 // Naive - PUBLIC
@@ -13,35 +11,10 @@ use crate::engine::{
 /// - [`Naive`] also includes some debug assertions
 ///   which are not present in other implementations.
 #[derive(Clone, Copy)]
-pub struct Naive {
-    exp: &'static Exp,
-    log: &'static Log,
-    skew: &'static Skew,
-}
-
-impl Naive {
-    /// Creates new [`Naive`], initializing all [tables]
-    /// needed for encoding or decoding.
-    ///
-    /// Currently only difference between encoding/decoding is
-    /// [`LogWalsh`] (128 kiB) which is only needed for decoding.
-    ///
-    /// [`LogWalsh`]: crate::engine::tables::LogWalsh
-    pub fn new() -> Self {
-        let exp_log = tables::get_exp_log();
-        let skew = tables::get_skew();
-
-        Self {
-            exp: &exp_log.exp,
-            log: &exp_log.log,
-            skew,
-        }
-    }
-}
+pub struct Naive;
 
 impl Engine for Naive {
     fn fft(
-        &self,
         data: &mut ShardsRefMut,
         pos: usize,
         size: usize,
@@ -55,16 +28,16 @@ impl Engine for Naive {
         while dist > 0 {
             let mut r = 0;
             while r < truncated_size {
-                let log_m = self.skew[r + dist + skew_delta - 1];
+                let log_m = tables::SKEW[r + dist + skew_delta - 1];
                 for i in r..r + dist {
                     let (a, b) = data.dist2_mut(pos + i, dist);
 
                     // FFT BUTTERFLY
 
                     if log_m != GF_MODULUS {
-                        self.mul_add(a, b, log_m);
+                        Self::mul_add(a, b, log_m);
                     }
-                    self.xor(b, a);
+                    Self::xor(b, a);
                 }
                 r += dist * 2;
             }
@@ -73,7 +46,6 @@ impl Engine for Naive {
     }
 
     fn ifft(
-        &self,
         data: &mut ShardsRefMut,
         pos: usize,
         size: usize,
@@ -87,15 +59,15 @@ impl Engine for Naive {
         while dist < size {
             let mut r = 0;
             while r < truncated_size {
-                let log_m = self.skew[r + dist + skew_delta - 1];
+                let log_m = tables::SKEW[r + dist + skew_delta - 1];
                 for i in r..r + dist {
                     let (a, b) = data.dist2_mut(pos + i, dist);
 
                     // IFFT BUTTERFLY
 
-                    self.xor(b, a);
+                    Self::xor(b, a);
                     if log_m != GF_MODULUS {
-                        self.mul_add(a, b, log_m);
+                        Self::mul_add(a, b, log_m);
                     }
                 }
                 r += dist * 2;
@@ -104,12 +76,12 @@ impl Engine for Naive {
         }
     }
 
-    fn mul(&self, x: &mut [[u8; 64]], log_m: GfElement) {
+    fn mul(x: &mut [[u8; 64]], log_m: GfElement) {
         for chunk in x.iter_mut() {
             for i in 0..32 {
                 let lo = GfElement::from(chunk[i]);
                 let hi = GfElement::from(chunk[i + 32]);
-                let prod = tables::mul(lo | (hi << 8), log_m, self.exp, self.log);
+                let prod = utils::mul(lo | (hi << 8), log_m);
                 chunk[i] = prod as u8;
                 chunk[i + 32] = (prod >> 8) as u8;
             }
@@ -118,27 +90,19 @@ impl Engine for Naive {
 }
 
 // ======================================================================
-// Naive - IMPL Default
-
-impl Default for Naive {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-// ======================================================================
 // Naive - PRIVATE
 
 impl Naive {
     /// `x[] ^= y[] * log_m`
-    fn mul_add(&self, x: &mut [[u8; 64]], y: &[[u8; 64]], log_m: GfElement) {
+    #[inline(always)]
+    fn mul_add(x: &mut [[u8; 64]], y: &[[u8; 64]], log_m: GfElement) {
         debug_assert_eq!(x.len(), y.len());
 
         for (x_chunk, y_chunk) in core::iter::zip(x.iter_mut(), y.iter()) {
             for i in 0..32 {
                 let lo = GfElement::from(y_chunk[i]);
                 let hi = GfElement::from(y_chunk[i + 32]);
-                let prod = tables::mul(lo | (hi << 8), log_m, self.exp, self.log);
+                let prod = utils::mul(lo | (hi << 8), log_m);
                 x_chunk[i] ^= prod as u8;
                 x_chunk[i + 32] ^= (prod >> 8) as u8;
             }

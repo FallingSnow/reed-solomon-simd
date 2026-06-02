@@ -15,26 +15,7 @@ use core::iter::zip;
 ///
 /// [`NoSimd`]: crate::engine::NoSimd
 #[derive(Clone, Copy)]
-pub struct Neon {
-    mul128: &'static Mul128,
-    skew: &'static Skew,
-}
-
-impl Neon {
-    /// Creates new [`Neon`], initializing all [tables]
-    /// needed for encoding or decoding.
-    ///
-    /// Currently only difference between encoding/decoding is
-    /// [`LogWalsh`] (128 kiB) which is only needed for decoding.
-    ///
-    /// [`LogWalsh`]: crate::engine::tables::LogWalsh
-    pub fn new() -> Self {
-        let mul128 = tables::get_mul128();
-        let skew = tables::get_skew();
-
-        Self { mul128, skew }
-    }
-}
+pub struct Neon;
 
 impl Engine for Neon {
     fn fft(

@@ -1,7 +1,8 @@
 use core::marker::PhantomData;
 
 use crate::{
-    engine::{self, Engine, GF_MODULUS, GF_ORDER},
+    constants::{GF_MODULUS, GF_ORDER},
+    engine::{self, Engine},
     rate::{DecoderWork, EncoderWork, Rate, RateDecoder, RateEncoder},
     DecoderResult, EncoderResult, Error,
 };
@@ -30,8 +31,8 @@ impl<E: Engine> Rate<E> for HighRate<E> {
 
 /// Reed-Solomon encoder using only high rate.
 pub struct HighRateEncoder<E: Engine> {
-    engine: E,
     work: EncoderWork,
+    engine: PhantomData<E>,
 }
 
 impl<E: Engine> RateEncoder<E> for HighRateEncoder<E> {
@@ -44,22 +45,21 @@ impl<E: Engine> RateEncoder<E> for HighRateEncoder<E> {
     fn encode(&mut self) -> Result<EncoderResult<'_>, Error> {
         let (mut work, original_count, recovery_count) = self.work.encode_begin()?;
         let chunk_size = recovery_count.next_power_of_two();
-        let engine = &self.engine;
 
         // FIRST CHUNK
 
         let first_count = core::cmp::min(original_count, chunk_size);
 
         work.zero(first_count..chunk_size);
-        engine::ifft_skew_end(engine, &mut work, 0, chunk_size, first_count);
+        engine::ifft_skew_end::<E>(&mut work, 0, chunk_size, first_count);
 
         if original_count > chunk_size {
             // FULL CHUNKS
 
             let mut chunk_start = chunk_size;
             while chunk_start + chunk_size <= original_count {
-                engine::ifft_skew_end(engine, &mut work, chunk_start, chunk_size, chunk_size);
-                engine.xor_within(&mut work, 0, chunk_start, chunk_size);
+                engine::ifft_skew_end::<E>(&mut work, chunk_start, chunk_size, chunk_size);
+                E::xor_within(&mut work, 0, chunk_start, chunk_size);
                 chunk_start += chunk_size;
             }
 
@@ -68,14 +68,14 @@ impl<E: Engine> RateEncoder<E> for HighRateEncoder<E> {
             let last_count = original_count % chunk_size;
             if last_count > 0 {
                 work.zero(chunk_start + last_count..);
-                engine::ifft_skew_end(engine, &mut work, chunk_start, chunk_size, last_count);
-                engine.xor_within(&mut work, 0, chunk_start, chunk_size);
+                engine::ifft_skew_end::<E>(&mut work, chunk_start, chunk_size, last_count);
+                E::xor_within(&mut work, 0, chunk_start, chunk_size);
             }
         }
 
         // FFT
 
-        engine.fft(&mut work, 0, chunk_size, recovery_count, 0);
+        E::fft(&mut work, 0, chunk_size, recovery_count, 0);
 
         // UNDO LAST CHUNK ENCODING
 
@@ -86,20 +86,22 @@ impl<E: Engine> RateEncoder<E> for HighRateEncoder<E> {
         Ok(EncoderResult::new(&mut self.work))
     }
 
-    fn into_parts(self) -> (E, EncoderWork) {
-        (self.engine, self.work)
+    fn into_work(self) -> EncoderWork {
+        self.work
     }
 
     fn new(
         original_count: usize,
         recovery_count: usize,
         shard_bytes: usize,
-        engine: E,
         work: Option<EncoderWork>,
     ) -> Result<Self, Error> {
         let mut work = work.unwrap_or_default();
         Self::reset_work(original_count, recovery_count, shard_bytes, &mut work)?;
-        Ok(Self { engine, work })
+        Ok(Self {
+            work,
+            engine: PhantomData::default(),
+        })
     }
 
     fn reset(
@@ -146,8 +148,8 @@ impl<E: Engine> HighRateEncoder<E> {
 
 /// Reed-Solomon decoder using only high rate.
 pub struct HighRateDecoder<E: Engine> {
-    engine: E,
     work: DecoderWork,
+    engine: PhantomData<E>,
 }
 
 impl<E: Engine> RateDecoder<E> for HighRateDecoder<E> {
@@ -201,7 +203,7 @@ impl<E: Engine> RateDecoder<E> for HighRateDecoder<E> {
 
         // EVALUATE POLYNOMIAL
 
-        self.engine.eval_poly(&mut erasures, original_end);
+        E::eval_poly(&mut erasures, original_end);
 
         // MULTIPLY SHARDS
 
@@ -212,7 +214,7 @@ impl<E: Engine> RateDecoder<E> for HighRateDecoder<E> {
 
         for i in 0..recovery_count {
             if received[i] {
-                self.engine.mul(&mut work[i], erasures[i]);
+                E::mul(&mut work[i], erasures[i]);
             } else {
                 work[i].fill([0; 64]);
             }
@@ -222,7 +224,7 @@ impl<E: Engine> RateDecoder<E> for HighRateDecoder<E> {
 
         for i in chunk_size..original_end {
             if received[i] {
-                self.engine.mul(&mut work[i], erasures[i]);
+                E::mul(&mut work[i], erasures[i]);
             } else {
                 work[i].fill([0; 64]);
             }
@@ -232,15 +234,15 @@ impl<E: Engine> RateDecoder<E> for HighRateDecoder<E> {
 
         // IFFT / FORMAL DERIVATIVE / FFT
 
-        self.engine.ifft(&mut work, 0, work_count, original_end, 0);
-        self.engine.formal_derivative(&mut work);
-        self.engine.fft(&mut work, 0, work_count, original_end, 0);
+        E::ifft(&mut work, 0, work_count, original_end, 0);
+        E::formal_derivative(&mut work);
+        E::fft(&mut work, 0, work_count, original_end, 0);
 
         // REVEAL ERASURES
 
         for i in chunk_size..original_end {
             if !received[i] {
-                self.engine.mul(&mut work[i], GF_MODULUS - erasures[i]);
+                E::mul(&mut work[i], GF_MODULUS - erasures[i]);
             }
         }
 
@@ -253,20 +255,22 @@ impl<E: Engine> RateDecoder<E> for HighRateDecoder<E> {
         Ok(DecoderResult::new(&mut self.work))
     }
 
-    fn into_parts(self) -> (E, DecoderWork) {
-        (self.engine, self.work)
+    fn into_work(self) -> DecoderWork {
+        self.work
     }
 
     fn new(
         original_count: usize,
         recovery_count: usize,
         shard_bytes: usize,
-        engine: E,
         work: Option<DecoderWork>,
     ) -> Result<Self, Error> {
         let mut work = work.unwrap_or_default();
         Self::reset_work(original_count, recovery_count, shard_bytes, &mut work)?;
-        Ok(Self { engine, work })
+        Ok(Self {
+            work,
+            engine: PhantomData::default(),
+        })
     }
 
     fn reset(
@@ -453,27 +457,27 @@ mod tests {
         #[test]
         fn decoder() {
             assert_eq!(
-                HighRate::<NoSimd>::decoder(4096, 61440, 64, NoSimd::new(), None).err(),
+                HighRate::<NoSimd>::decoder(4096, 61440, 64, None).err(),
                 Some(Error::UnsupportedShardCount {
                     original_count: 4096,
                     recovery_count: 61440,
                 })
             );
 
-            assert!(HighRate::<NoSimd>::decoder(61440, 4096, 64, NoSimd::new(), None).is_ok());
+            assert!(HighRate::<NoSimd>::decoder(61440, 4096, 64, None).is_ok());
         }
 
         #[test]
         fn encoder() {
             assert_eq!(
-                HighRate::<NoSimd>::encoder(4096, 61440, 64, NoSimd::new(), None).err(),
+                HighRate::<NoSimd>::encoder(4096, 61440, 64, None).err(),
                 Some(Error::UnsupportedShardCount {
                     original_count: 4096,
                     recovery_count: 61440,
                 })
             );
 
-            assert!(HighRate::<NoSimd>::encoder(61440, 4096, 64, NoSimd::new(), None).is_ok());
+            assert!(HighRate::<NoSimd>::encoder(61440, 4096, 64, None).is_ok());
         }
 
         #[test]
@@ -626,4 +630,3 @@ mod tests {
         }
     }
 }
-

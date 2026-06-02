@@ -1,4 +1,5 @@
-use crate::engine::{utils, GfElement, GF_ORDER};
+use super::constants::{GfElement, GF_ORDER};
+use super::utils::{add_mod, sub_mod};
 
 // ======================================================================
 // FWHT (fast Walsh-Hadamard transform) - CRATE
@@ -29,8 +30,8 @@ pub(crate) fn fwht(data: &mut [GfElement; GF_ORDER], m_truncated: usize) {
 
 #[inline(always)]
 fn fwht_2(a: GfElement, b: GfElement) -> (GfElement, GfElement) {
-    let sum = utils::add_mod(a, b);
-    let dif = utils::sub_mod(a, b);
+    let sum = add_mod(a, b);
+    let dif = sub_mod(a, b);
     (sum, dif)
 }
 

@@ -122,7 +122,7 @@ of the encoding/decoding process.
 Here's the above example using these instead:
 
 ```rust
-use reed_solomon_simd::{ReedSolomonDecoder, ReedSolomonEncoder};
+use reed_solomon_simd::{engine::DefaultEngine, ReedSolomonDecoder, ReedSolomonEncoder};
 use std::collections::HashMap;
 
 let original = [
@@ -131,7 +131,7 @@ let original = [
     b"nim ad minim veniam, quis nostrud exercitation ullamco laboris n",
 ];
 
-let mut encoder = ReedSolomonEncoder::new(
+let mut encoder: ReedSolomonEncoder<DefaultEngine> = ReedSolomonEncoder::new(
     3, // total number of original shards
     5, // total number of recovery shards
     64, // shard size in bytes
@@ -144,7 +144,7 @@ for shard in original {
 let result = encoder.encode()?;
 let recovery: Vec<_> = result.recovery_iter().collect();
 
-let mut decoder = ReedSolomonDecoder::new(
+let mut decoder: ReedSolomonDecoder<DefaultEngine> = ReedSolomonDecoder::new(
     3, // total number of original shards
     5, // total number of recovery shards
     64, // shard size in bytes

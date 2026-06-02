@@ -51,7 +51,7 @@ macro_rules! println {
 
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
-use reed_solomon_simd::ReedSolomonEncoder;
+use reed_solomon_simd::{ReedSolomonEncoder, engine::DefaultEngine};
 
 // ======================================================================
 // CONST
@@ -84,12 +84,6 @@ fn test_reed_solomon_simd(count: usize) {
 
     let start = Instant::now();
 
-    // This table is only used in decoding.
-    reed_solomon_simd::engine::tables::get_log_walsh();
-
-    // This initializes the remaining needed tables.
-    reed_solomon_simd::engine::DefaultEngine::new();
-
     let elapsed = start.elapsed();
     print!("> reed-solomon-simd        {:9}", elapsed.as_micros());
 
@@ -107,7 +101,7 @@ fn test_reed_solomon_simd(count: usize) {
 
     let original = original.into_iter();
 
-    let mut encoder = ReedSolomonEncoder::new(count, count, SHARD_BYTES).unwrap();
+    let mut encoder = ReedSolomonEncoder::<DefaultEngine>::new(count, count, SHARD_BYTES).unwrap();
 
     for original in original {
         encoder.add_original_shard(original).unwrap();

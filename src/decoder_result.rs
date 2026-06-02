@@ -116,7 +116,7 @@ impl<'a> RestoredOriginal<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{test_util, ReedSolomonDecoder, ReedSolomonEncoder};
+    use crate::{ReedSolomonDecoder, ReedSolomonEncoder, engine::DefaultEngine, test_util};
 
     #[cfg(not(feature = "std"))]
     use alloc::vec::Vec;
@@ -124,8 +124,8 @@ mod tests {
     fn simple_roundtrip(shard_size: usize) {
         let original = test_util::generate_original(3, shard_size, 0);
 
-        let mut encoder = ReedSolomonEncoder::new(3, 2, shard_size).unwrap();
-        let mut decoder = ReedSolomonDecoder::new(3, 2, shard_size).unwrap();
+        let mut encoder = ReedSolomonEncoder::<DefaultEngine>::new(3, 2, shard_size).unwrap();
+        let mut decoder = ReedSolomonDecoder::<DefaultEngine>::new(3, 2, shard_size).unwrap();
 
         for original in &original {
             encoder.add_original_shard(original).unwrap();
@@ -174,8 +174,8 @@ mod tests {
         let shard_size = 64;
         let original = test_util::generate_original(3, shard_size, 0);
 
-        let mut encoder = ReedSolomonEncoder::new(3, 2, shard_size).unwrap();
-        let mut decoder = ReedSolomonDecoder::new(3, 2, shard_size).unwrap();
+        let mut encoder = ReedSolomonEncoder::<DefaultEngine>::new(3, 2, shard_size).unwrap();
+        let mut decoder = ReedSolomonDecoder::<DefaultEngine>::new(3, 2, shard_size).unwrap();
 
         for original in &original {
             encoder.add_original_shard(original).unwrap();
@@ -209,8 +209,8 @@ mod tests {
         let shard_size = 64;
         let original = test_util::generate_original(3, shard_size, 0);
 
-        let mut encoder = ReedSolomonEncoder::new(3, 2, shard_size).unwrap();
-        let mut decoder = ReedSolomonDecoder::new(3, 2, shard_size).unwrap();
+        let mut encoder = ReedSolomonEncoder::<DefaultEngine>::new(3, 2, shard_size).unwrap();
+        let mut decoder = ReedSolomonDecoder::<DefaultEngine>::new(3, 2, shard_size).unwrap();
 
         for original in &original {
             encoder.add_original_shard(original).unwrap();

@@ -2,7 +2,11 @@
 //!
 //! [`Engine`]: crate::engine::Engine
 
-use crate::engine::{fwht, tables, Engine, GfElement, ShardsRefMut, GF_BITS, GF_ORDER};
+use crate::engine::tables::{EXP, LOG};
+use crate::engine::{Engine, ShardsRefMut, tables};
+use crate::constants::{GF_BITS, GF_ORDER, GfElement};
+use crate::generation::fwht;
+
 use core::iter::zip;
 
 // ======================================================================
@@ -18,7 +22,7 @@ use core::iter::zip;
 /// [`Avx2`]: crate::engine::Avx2
 #[inline(always)]
 pub fn eval_poly(erasures: &mut [GfElement; GF_ORDER], truncated_size: usize) {
-    let log_walsh = tables::get_log_walsh();
+    let log_walsh = tables::LOG_WALSH;
 
     fwht::fwht(erasures, truncated_size);
 
@@ -47,16 +51,18 @@ pub fn xor(xs: &mut [[u8; 64]], ys: &[[u8; 64]]) {
 
 /// Some kind of addition.
 #[inline(always)]
-pub(crate) fn add_mod(x: GfElement, y: GfElement) -> GfElement {
-    let sum = u32::from(x) + u32::from(y);
+const fn add_mod(x: GfElement, y: GfElement) -> GfElement {
+    let sum = x as u32 + y as u32;
     (sum + (sum >> GF_BITS)) as GfElement
 }
-
-/// Some kind of subtraction.
+/// Calculates `x * log_m` using [`Exp`] and [`Log`] tables.
 #[inline(always)]
-pub(crate) fn sub_mod(x: GfElement, y: GfElement) -> GfElement {
-    let dif = u32::from(x).wrapping_sub(u32::from(y));
-    dif.wrapping_add(dif >> GF_BITS) as GfElement
+pub fn mul(x: GfElement, log_m: GfElement) -> GfElement {
+    if x == 0 {
+        0
+    } else {
+        EXP[add_mod(LOG[x as usize], log_m) as usize]
+    }
 }
 
 // ======================================================================
@@ -64,25 +70,23 @@ pub(crate) fn sub_mod(x: GfElement, y: GfElement) -> GfElement {
 
 /// FFT with `skew_delta = pos + size`.
 #[inline(always)]
-pub(crate) fn fft_skew_end(
-    engine: &impl Engine,
+pub(crate) fn fft_skew_end<E: Engine>(
     data: &mut ShardsRefMut,
     pos: usize,
     size: usize,
     truncated_size: usize,
 ) {
-    engine.fft(data, pos, size, truncated_size, pos + size);
+    E::fft(data, pos, size, truncated_size, pos + size);
 }
 
 /// IFFT with `skew_delta = pos + size`.
 #[inline(always)]
-pub(crate) fn ifft_skew_end(
-    engine: &impl Engine,
+pub(crate) fn ifft_skew_end<E: Engine>(
     data: &mut ShardsRefMut,
     pos: usize,
     size: usize,
     truncated_size: usize,
 ) {
-    engine.ifft(data, pos, size, truncated_size, pos + size);
+    E::ifft(data, pos, size, truncated_size, pos + size);
 }
 

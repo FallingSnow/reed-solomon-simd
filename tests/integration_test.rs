@@ -50,7 +50,6 @@ fn test_rate<E: Engine + Default, R: Rate<E>>(
         original_count,
         recovery_count,
         shard_bytes,
-        E::default(),
         None,
     )?;
 
@@ -68,7 +67,6 @@ fn test_rate<E: Engine + Default, R: Rate<E>>(
         original_count,
         recovery_count,
         shard_bytes,
-        E::default(),
         None,
     )?;
 
@@ -97,7 +95,7 @@ fn test_rate<E: Engine + Default, R: Rate<E>>(
     Ok(())
 }
 
-fn compare_to_nosimd<E: Engine + Default>(
+fn compare_to_nosimd<E: Engine>(
     original_count: usize,
     recovery_count: usize,
     shard_bytes: usize,
@@ -107,19 +105,17 @@ fn compare_to_nosimd<E: Engine + Default>(
 
     // ENCODE
 
-    let mut encoder_prospect = DefaultRateEncoder::new(
+    let mut encoder_prospect = DefaultRateEncoder::<E>::new(
         original_count,
         recovery_count,
         shard_bytes,
-        E::default(),
         None,
     )?;
 
-    let mut encoder_nosimd = DefaultRateEncoder::new(
+    let mut encoder_nosimd = DefaultRateEncoder::<E>::new(
         original_count,
         recovery_count,
         shard_bytes,
-        NoSimd::new(),
         None,
     )?;
 
@@ -138,19 +134,17 @@ fn compare_to_nosimd<E: Engine + Default>(
 
     // DECODE
 
-    let mut decoder_prospect = DefaultRateDecoder::new(
+    let mut decoder_prospect = DefaultRateDecoder::<E>::new(
         original_count,
         recovery_count,
         shard_bytes,
-        E::default(),
         None,
     )?;
 
-    let mut decoder_nosimd = DefaultRateDecoder::new(
+    let mut decoder_nosimd = DefaultRateDecoder::<E>::new(
         original_count,
         recovery_count,
         shard_bytes,
-        NoSimd::default(),
         None,
     )?;
 
