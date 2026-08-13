@@ -78,6 +78,8 @@ fn main() {
         test_reed_solomon_novelpoly(count);
         if count <= 128 {
             #[cfg(not(target_arch = "wasm32"))]
+            test_fec_rs(count);
+            #[cfg(not(target_arch = "wasm32"))]
             test_reed_solomon_erasure_8(count);
             #[cfg(not(target_arch = "wasm32"))]
             test_leopard_codec(count);
@@ -86,6 +88,59 @@ fn main() {
             #[cfg(not(target_arch = "wasm32"))]
             test_reed_solomon_erasure_16(count);
         }
+    }
+}
+
+// ======================================================================
+// fec-rs
+
+#[cfg(not(target_arch = "wasm32"))]
+fn test_fec_rs(count: usize) {
+    // INIT (table init is implicit on first use)
+
+    let start = Instant::now();
+    let rs = fec_rs::ReedSolomon::new(count, count).unwrap();
+    let elapsed = start.elapsed();
+    print!("> fec-rs                   {:9}", elapsed.as_micros());
+
+    // CREATE ORIGINAL
+
+    let mut original = vec![vec![0u8; SHARD_BYTES]; count];
+    let mut rng = ChaCha8Rng::from_seed([0; 32]);
+    for shard in &mut original {
+        rng.fill::<[u8]>(shard);
+    }
+
+    // ENCODE (encode_sep: data / parity separated)
+
+    let mut recovery = vec![vec![0u8; SHARD_BYTES]; count];
+
+    let start = Instant::now();
+    rs.encode_sep(&original, &mut recovery).unwrap();
+    let elapsed = start.elapsed();
+    print!("{:14}", elapsed.as_micros());
+
+    // PREPARE DECODE (data shards missing)
+
+    let mut decoder_shards: Vec<Option<Vec<u8>>> = Vec::with_capacity(2 * count);
+    for _ in 0..count {
+        decoder_shards.push(None); // missing data shards
+    }
+    for i in 0..count {
+        decoder_shards.push(Some(recovery[i].clone())); // parity shards
+    }
+
+    // DECODE (reconstruct)
+
+    let start = Instant::now();
+    rs.reconstruct(&mut decoder_shards).unwrap();
+    let elapsed = start.elapsed();
+    println!("{:14}", elapsed.as_micros());
+
+    // CHECK
+
+    for i in 0..count {
+        assert_eq!(decoder_shards[i].as_ref(), Some(&original[i]));
     }
 }
 
